@@ -53,10 +53,28 @@ Web Widget ──(mensagem business com Webview action "🎙️ Gravar áudio")�
 2. **Chave do Web Widget.** No Admin Center, vá em *Canais → Messaging*, abra o seu Web Widget e entre
    em *Instalação*. O valor de `key=` no snippet é a chave.
 3. *(Recomendado)* Ative **anexos privados** e **Secure Downloads** para messaging.
-4. *(Opcional)* **Webhook** para a oferta automática: crie uma integração de webhook da
-   Conversations API com o gatilho `conversation:message`, a URL `https://<sua-url>/webhooks/zendesk`
-   e copie o segredo para `WEBHOOK_SECRET`. Com o webhook ativo, quando o cliente escreve "áudio", "voz"
-   ou "gravar", o convite é enviado automaticamente.
+4. *(Opcional)* **Webhook** para o convite automático **em qualquer site** onde o widget estiver
+   instalado. Crie uma integração de webhook da Conversations API com os gatilhos
+   `conversation:create` e `conversation:message`, a URL `https://<sua-url>/webhooks/zendesk`, e copie
+   o segredo para `WEBHOOK_SECRET`. Preencha também `OFFER_INTEGRATION_IDS` com o ID do Web Widget de
+   teste. O ID aparece no log `voice_session_created` (campo `integrationId`) depois de abrir o
+   gravador uma vez. Widgets fora dessa lista **não** recebem convite, o que protege as marcas de
+   clientes reais da conta.
+
+## Convite de gravação
+
+O convite é uma mensagem do "business" com um botão do tipo **Webview action**. Ao tocar, o widget
+abre `PUBLIC_BASE_URL/recorder` num painel por cima da conversa: é uma página web nossa, dentro de
+um iframe do widget. Ele é enviado:
+
+- **automaticamente, quando uma conversa nova começa**. Pela página de teste (evento
+  `conversationStarted` do widget, com `DEMO_OFFER_ENDPOINT=true`) ou pelo webhook
+  `conversation:create`. No máximo um convite por conversa.
+- quando o cliente escreve "áudio", "voz" ou "gravar" (webhook `conversation:message`).
+- pelo botão **Reenviar convite** da página de teste, ou com `npm run send-offer -- <conversationId>`.
+
+O mesmo botão serve para **vários áudios**: o cliente pode tocar nele de novo quantas vezes quiser,
+e o gravador tem **Gravar outro áudio** depois de cada envio.
 
 ## Rodando
 
@@ -72,9 +90,8 @@ npm run dev               # http://localhost:8080
 Abra `PUBLIC_BASE_URL` (a URL HTTPS do túnel, não `localhost`) e siga estes passos:
 
 1. Abra o widget e mande "oi".
-2. Clique em **Enviar convite de gravação para esta conversa**. Esse botão aparece com
-   `DEMO_OFFER_ENDPOINT=true`. Também dá para usar o webhook ou rodar
-   `npm run send-offer -- <conversationId>`.
+2. Numa conversa nova, o convite "🎙️ Gravar áudio" chega sozinho. Numa conversa que já existia,
+   use **Reenviar convite de gravação para esta conversa**.
 3. No chat, toque em **🎙️ Gravar áudio**, grave, ouça e envie.
 4. Confira o áudio no widget e no ticket do Agent Workspace.
 
@@ -88,8 +105,9 @@ npm test     # sobe o servidor contra uma Zendesk simulada (JWKS + API v2); requ
 ```
 
 Cobrem: token inválido, expirado ou de outro app; fluxo feliz com autoria `user`; idempotência
-(duplo clique e retry); oferta de uso único; arquivo disfarçado (415); duração acima do limite;
-retry após falha da Zendesk reaproveitando o upload.
+(duplo clique e retry); vários áudios pelo mesmo convite; arquivo disfarçado (415); duração acima do
+limite; retry após falha da Zendesk reaproveitando o upload; convite automático pelo webhook
+(só para o widget permitido, um por conversa) e pela página de teste.
 
 ## Descobertas na conta real (27/10/2026)
 

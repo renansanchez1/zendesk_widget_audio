@@ -147,6 +147,9 @@ async function startApp(extraEnv: Record<string, string> = {}): Promise<string> 
       ZD_JWKS_URI: `${mockUrl}/.well-known/jwks.json`,
       MAX_DURATION_SEC: '10',
       MAX_BYTES: '1048576',
+      WEBHOOK_SECRET: 'whsec_teste',
+      OFFER_INTEGRATION_IDS: 'int_widget_teste',
+      DEMO_OFFER_ENDPOINT: 'true',
       ...extraEnv,
     },
     stdio: ['ignore', 'ignore', 'inherit'],
@@ -235,17 +238,21 @@ test('fluxo feliz: publica uma mensagem file com autoria do cliente, idempotente
   assert.equal(messages.length, before + 1);
 });
 
-test('oferta é de uso único depois que o áudio é publicado', async () => {
+test('o mesmo convite permite enviar vários áudios', async () => {
   const offer = randomUUID();
-  const token = () => contextToken({ messageMetadata: { voiceOfferId: offer } });
-  const first = await createSession(token());
-  assert.equal(first.status, 201);
-  // Reabrir o gravador antes de enviar é permitido.
-  assert.equal((await createSession(token())).status, 201);
-  const sent = await sendVoice(first.body.sessionId, randomUUID(), makeAudio('unico.webm', 2), 2000);
-  assert.equal(sent.status, 201);
-  const again = await createSession(token());
-  assert.deepEqual([again.status, again.body.error], [409, 'offer_already_used']);
+  const token = () => contextToken({ conversationId: 'conv_varios_01', messageMetadata: { voiceOfferId: offer } });
+  const session = await createSession(token());
+  assert.equal(session.status, 201);
+  const first = await sendVoice(session.body.sessionId, randomUUID(), makeAudio('varios1.webm', 2), 2000);
+  const second = await sendVoice(session.body.sessionId, randomUUID(), makeAudio('varios2.webm', 2), 2000);
+  assert.deepEqual([first.status, second.status], [201, 201]);
+  assert.notEqual(first.body.messageId, second.body.messageId);
+  // Reabrir o gravador pelo mesmo botão também funciona.
+  const reopened = await createSession(token());
+  assert.equal(reopened.status, 201);
+  assert.equal((await sendVoice(reopened.body.sessionId, randomUUID(), makeAudio('varios3.webm', 2), 2000)).status, 201);
+  const audios = messages.filter((m) => m.path.includes('conv_varios_01') && m.json.author.type === 'user');
+  assert.equal(audios.length, 3);
 });
 
 test('valida conteúdo: rejeita arquivo disfarçado, sem chave e sessão inválida', async () => {
@@ -285,4 +292,72 @@ test('retry após falha da Zendesk reaproveita o upload e publica uma única vez
   assert.equal(retried.status, 201);
   assert.equal(uploads.length, uploadsBefore + 1, 'o arquivo não deve subir duas vezes');
   assert.equal(messages.length, messagesBefore + 1);
+});
+
+// ---------- Convite automático ----------
+
+async function postWebhook(events: unknown[], apiKey = 'whsec_teste') {
+  return fetch(`${baseUrl}/webhooks/zendesk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify({ app: { id: APP_ID }, webhook: { id: 'wh', version: 'v2' }, events }),
+  });
+}
+
+const offersTo = (conversationId: string) =>
+  messages.filter((m) => m.path.endsWith(`/conversations/${conversationId}/messages`) && m.json.author.type === 'business');
+
+const settle = () => new Promise((r) => setTimeout(r, 300));
+
+function createEvent(conversationId: string, integrationId: string) {
+  return {
+    id: randomUUID(),
+    type: 'conversation:create',
+    payload: { conversation: { id: conversationId }, creationReason: 'message', source: { type: 'web', integrationId } },
+  };
+}
+
+test('webhook conversation:create envia um convite por conversa, só para o widget permitido', async () => {
+  assert.equal((await postWebhook([createEvent('conv_auto_0001', 'int_widget_teste')], 'errada')).status, 401);
+
+  assert.equal((await postWebhook([createEvent('conv_auto_0001', 'int_widget_teste')])).status, 200);
+  await postWebhook([createEvent('conv_auto_0001', 'int_widget_teste')]); // evento repetido da mesma conversa
+  await postWebhook([createEvent('conv_cliente_real', 'int_cliente_real')]);
+  await settle();
+
+  const offers = offersTo('conv_auto_0001');
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0].json.content.actions[0].type, 'webview');
+  assert.equal(offers[0].json.content.actions[0].uri, 'https://voz.test/recorder');
+  assert.ok(offers[0].json.metadata.voiceOfferId);
+  assert.equal(offersTo('conv_cliente_real').length, 0);
+});
+
+test('webhook conversation:message com "áudio" envia convite; outros textos não', async () => {
+  const msg = (conversationId: string, text: string) => ({
+    id: randomUUID(),
+    type: 'conversation:message',
+    payload: {
+      conversation: { id: conversationId },
+      message: { author: { type: 'user' }, content: { type: 'text', text }, source: { type: 'web', integrationId: 'int_widget_teste' } },
+    },
+  });
+  await postWebhook([msg('conv_kw_00001', 'bom dia')]);
+  await postWebhook([msg('conv_kw_00002', 'posso mandar um áudio?')]);
+  await settle();
+  assert.equal(offersTo('conv_kw_00001').length, 0);
+  assert.equal(offersTo('conv_kw_00002').length, 1);
+});
+
+test('página de teste: convite automático no máximo uma vez por conversa', async () => {
+  const ask = (auto: boolean) =>
+    fetch(`${baseUrl}/api/demo/offers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationId: 'conv_pagina_01', auto }),
+    });
+  assert.equal((await ask(true)).status, 201);
+  assert.equal((await ask(true)).status, 200); // já enviado
+  assert.equal((await ask(false)).status, 201); // botão "reenviar" sempre envia
+  assert.equal(offersTo('conv_pagina_01').length, 2);
 });

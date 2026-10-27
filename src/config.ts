@@ -24,6 +24,8 @@ export const config = {
   publicBaseUrl: optional('PUBLIC_BASE_URL').replace(/\/+$/, ''),
   port: Number(optional('PORT', '8080')),
   webhookSecret: optional('WEBHOOK_SECRET'),
+  // Integrações (Web Widgets) que recebem o convite automático pelo webhook. Vazio = nenhuma.
+  offerIntegrationIds: optional('OFFER_INTEGRATION_IDS').split(',').map((s) => s.trim()).filter(Boolean),
   maxDurationSec: Number(optional('MAX_DURATION_SEC', '180')),
   maxBytes: Number(optional('MAX_BYTES', String(10 * 1024 * 1024))),
   frameAncestors: optional('FRAME_ANCESTORS', '*'),

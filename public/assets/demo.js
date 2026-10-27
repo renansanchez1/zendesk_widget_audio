@@ -31,10 +31,31 @@
   snippet.onload = function () {
     // Eventos oficiais (Messaging Web Widget events API) para descobrir a conversa ativa.
     zE('messenger:on', 'conversationOpened', function (e) { setConversation(e.payload.conversation.id); });
-    zE('messenger:on', 'conversationStarted', function (e) { setConversation(e.payload.conversation.id); });
+    zE('messenger:on', 'conversationStarted', function (e) {
+      setConversation(e.payload.conversation.id);
+      if (demoOffer) autoOffer(e.payload.conversation.id, 0);
+    });
     zE('messenger:on', 'messageReceived', function (e) { setConversation(e.payload.conversation.id); });
   };
   document.body.appendChild(snippet);
+
+  // Conversa nova → convite automático (o servidor garante no máximo um por conversa).
+  // A conversa pode levar um instante para existir na API; tenta de novo algumas vezes.
+  function autoOffer(id, attempt) {
+    fetch('/api/demo/offers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationId: id, auto: true }),
+    })
+      .then(function (res) {
+        if (res.ok) {
+          $('offer-status').textContent = 'Convite de gravação enviado automaticamente para a conversa nova.';
+        } else if (attempt < 3) {
+          setTimeout(function () { autoOffer(id, attempt + 1); }, 2000);
+        }
+      })
+      .catch(function () { if (attempt < 3) setTimeout(function () { autoOffer(id, attempt + 1); }, 2000); });
+  }
 
   $('send-offer').addEventListener('click', function () {
     var button = $('send-offer');

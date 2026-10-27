@@ -17,7 +17,7 @@ import { HttpError, postUserFileMessage, sendVoiceOffer, uploadAttachment } from
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 const SESSION_TTL_SEC = 600;
 const IDEM_TTL_SEC = 24 * 3600;
-const OFFER_KEYWORDS = /\b(áudio|audio|voz|gravar)\b/i;
+const OFFER_KEYWORDS = /(?<!\p{L})(áudio|audio|voz|gravar)(?!\p{L})/iu; // \b não entende acentos
 
 interface VoiceSession {
   userId: string;
@@ -72,21 +72,24 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 // ---------- API do gravador ----------
 
 const sessionLimiter = rateLimit({ windowMs: 10 * 60_000, limit: 30, standardHeaders: true, legacyHeaders: false });
-const uploadLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false });
+const uploadLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 60, standardHeaders: true, legacyHeaders: false });
 
 app.post('/api/voice-sessions', sessionLimiter, express.json({ limit: '16kb' }), async (req, res) => {
   const correlationId = randomUUID();
   try {
     const ctx = await verifyContext(String(req.body?.contextToken ?? ''));
-    // Nonce da oferta; se a metadata não vier no token, o id da mensagem de oferta serve de chave.
+    // O mesmo convite pode ser usado para vários áudios (D-06); o id só liga o áudio ao convite.
     const offerId = String(ctx.messageMetadata?.voiceOfferId ?? ctx.messageId ?? '');
-    if (!offerId) return res.status(401).json({ error: 'context_invalid' });
-    if (store.get(`offer-used:${offerId}`)) return res.status(409).json({ error: 'offer_already_used' });
 
     const sessionId = `vs_${randomUUID()}`;
     const session: VoiceSession = { userId: ctx.appuserId, conversationId: ctx.conversationId, offerId };
     store.set(`vs:${sessionId}`, JSON.stringify(session), SESSION_TTL_SEC);
-    log('voice_session_created', { correlationId, conv: hash(ctx.conversationId), user: hash(ctx.appuserId) });
+    log('voice_session_created', {
+      correlationId,
+      conv: hash(ctx.conversationId),
+      user: hash(ctx.appuserId),
+      integrationId: ctx.integrationId, // ID do Web Widget; use em OFFER_INTEGRATION_IDS
+    });
 
     return res.status(201).json({
       sessionId,
@@ -127,7 +130,6 @@ app.post('/api/voice-messages', uploadLimiter, requireVoiceSession, upload.singl
   if (!store.setIfAbsent(idemKey, 'processing', 120)) return res.status(202).json({ status: 'processing' });
 
   try {
-    if (store.get(`offer-used:${session.offerId}`)) throw new HttpError(409, 'offer_already_used');
     const file = req.file;
     if (!file) throw new HttpError(400, 'invalid_audio');
 
@@ -166,7 +168,6 @@ app.post('/api/voice-messages', uploadLimiter, requireVoiceSession, upload.singl
 
     const result = { messageId, mediaType: sniffed.mediaType, durationMs: Math.round(realMs), correlationId };
     store.set(idemKey, JSON.stringify(result), IDEM_TTL_SEC);
-    store.set(`offer-used:${session.offerId}`, '1', IDEM_TTL_SEC);
     log('voice_message_published', {
       correlationId,
       conv: hash(session.conversationId),
@@ -183,7 +184,26 @@ app.post('/api/voice-messages', uploadLimiter, requireVoiceSession, upload.singl
   }
 });
 
-// ---------- Webhook (opcional): envia a oferta quando o cliente fala em "áudio" ----------
+// ---------- Convite automático ----------
+
+/** Envia a oferta uma única vez por conversa (webhook e página de teste compartilham a trava). */
+async function sendAutoOffer(conversationId: string, via: string): Promise<string | undefined> {
+  const key = `auto-offer:${conversationId}`;
+  if (!store.setIfAbsent(key, 'sending', 24 * 3600)) return undefined;
+  try {
+    const messageId = await sendVoiceOffer(conversationId);
+    log('voice_offer_sent', { conv: hash(conversationId), messageId, via });
+    return messageId;
+  } catch (e) {
+    store.delete(key);
+    log('voice_offer_failed', { conv: hash(conversationId), via, detail: (e as Error).message });
+    throw e;
+  }
+}
+
+// ---------- Webhook (opcional) ----------
+// conversation:create → convite em toda conversa nova; conversation:message → convite quando o
+// cliente fala em "áudio". Só para os Web Widgets listados em OFFER_INTEGRATION_IDS.
 
 function validWebhookKey(received: string): boolean {
   const a = Buffer.from(received);
@@ -196,7 +216,12 @@ interface WebhookEvent {
   type: string;
   payload?: {
     conversation?: { id: string };
-    message?: { author?: { type?: string }; content?: { type?: string; text?: string } };
+    source?: { type?: string; integrationId?: string };
+    message?: {
+      author?: { type?: string };
+      content?: { type?: string; text?: string };
+      source?: { type?: string; integrationId?: string };
+    };
   };
 }
 
@@ -208,35 +233,51 @@ app.post('/webhooks/zendesk', express.json({ limit: '1mb' }), (req, res) => {
 
   const events = (req.body?.events ?? []) as WebhookEvent[];
   for (const event of events) {
-    const message = event.payload?.message;
-    const conversationId = event.payload?.conversation?.id;
-    if (event.type !== 'conversation:message' || !conversationId) continue;
-    if (message?.author?.type !== 'user' || message.content?.type !== 'text') continue;
-    if (!OFFER_KEYWORDS.test(message.content.text ?? '')) continue;
-    if (!store.setIfAbsent(`evt:${event.id}`, '1', 3600)) continue; // reentrega do webhook
+    const payload = event.payload;
+    const conversationId = payload?.conversation?.id;
+    if (!conversationId || !store.setIfAbsent(`evt:${event.id}`, '1', 3600)) continue; // reentrega
 
-    sendVoiceOffer(conversationId)
-      .then((messageId) => log('voice_offer_sent', { conv: hash(conversationId), messageId, via: 'webhook' }))
-      .catch((e) => log('voice_offer_failed', { conv: hash(conversationId), detail: (e as Error).message }));
+    let integrationId: string | undefined;
+    if (event.type === 'conversation:create') {
+      integrationId = payload?.source?.integrationId;
+    } else if (event.type === 'conversation:message') {
+      const message = payload?.message;
+      if (message?.author?.type !== 'user' || message.content?.type !== 'text') continue;
+      if (!OFFER_KEYWORDS.test(message.content.text ?? '')) continue;
+      integrationId = message.source?.integrationId;
+    } else {
+      continue;
+    }
+
+    if (!integrationId || !config.offerIntegrationIds.includes(integrationId)) {
+      log('voice_offer_skipped', { conv: hash(conversationId), event: event.type, integrationId });
+      continue;
+    }
+    sendAutoOffer(conversationId, `webhook:${event.type}`).catch(() => {});
   }
 });
 
-// ---------- Só demo: botão "enviar convite" da página de teste ----------
+// ---------- Só demo: convite pedido pela página de teste ----------
 // Aceita o conversationId do navegador, mas só publica a oferta (texto + botão do business);
 // o áudio continua exigindo o token verificado do getContext daquela conversa.
+// `auto: true` (conversa recém-iniciada) envia no máximo um convite por conversa.
 
 if (config.demoOfferEndpoint) {
-  const offerLimiter = rateLimit({ windowMs: 10 * 60_000, limit: 10, standardHeaders: true, legacyHeaders: false });
+  const offerLimiter = rateLimit({ windowMs: 10 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false });
   app.post('/api/demo/offers', offerLimiter, express.json({ limit: '4kb' }), async (req, res) => {
     const conversationId = String(req.body?.conversationId ?? '');
     if (!/^[A-Za-z0-9_-]{8,64}$/.test(conversationId)) return res.status(400).json({ error: 'invalid_conversation' });
     try {
+      if (req.body?.auto === true) {
+        const messageId = await sendAutoOffer(conversationId, 'demo_page:auto');
+        return messageId ? res.status(201).json({ messageId }) : res.status(200).json({ skipped: true });
+      }
       const messageId = await sendVoiceOffer(conversationId);
       log('voice_offer_sent', { conv: hash(conversationId), messageId, via: 'demo_page' });
       return res.status(201).json({ messageId });
     } catch (e) {
       const err = e instanceof HttpError ? e : new HttpError(500, 'internal');
-      log('voice_offer_failed', { conv: hash(conversationId), detail: (e as Error).message });
+      if (req.body?.auto !== true) log('voice_offer_failed', { conv: hash(conversationId), detail: (e as Error).message });
       return res.status(err.status).json({ error: err.code });
     }
   });

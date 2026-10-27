@@ -22,7 +22,7 @@
     });
     var focusTarget = {
       idle: 'btn-record', recording: 'btn-stop', preview: 'btn-send',
-      sent: 'btn-close', 'send-failed': 'btn-retry',
+      sent: 'btn-another', 'send-failed': 'btn-retry',
     }[view];
     if (focusTarget && !$(focusTarget).disabled) $(focusTarget).focus();
   }
@@ -293,13 +293,11 @@
     clearPreview();
     rec.state = 'sent';
     show('sent');
-    announce('Áudio enviado');
-    if (sdk && sdk.hasFeature('close')) setTimeout(function () { sdk.close(); }, 1500);
+    announce('Áudio enviado. Você pode gravar outro ou voltar para a conversa.');
   }
 
   function onSendError(code) {
     var fatal = {
-      offer_already_used: ['Este convite já foi usado', 'Peça um novo convite de gravação no chat.'],
       conversation_unavailable: ['Esta conversa não está mais disponível', 'Inicie uma nova conversa no chat.'],
       unsupported_media_type: ['Formato de áudio não suportado', 'Envie o arquivo pelo clipe 📎 do chat.'],
       too_large: ['Áudio grande demais', 'Grave uma mensagem mais curta.'],
@@ -322,9 +320,6 @@
 
   function onSessionError(e) {
     console.warn('[recorder] sessão não criada:', e);
-    if (e.code === 'offer_already_used') {
-      return showMessage('✅', 'Este convite já foi usado', 'Para mandar outro áudio, peça um novo convite no chat.', false);
-    }
     if (e.code === 'context_expired') {
       return showMessage('⌛', 'O convite expirou', 'Feche e abra o gravador pelo botão no chat.', false);
     }
@@ -349,6 +344,7 @@
   $('btn-back').addEventListener('click', function () { show('preview'); });
   $('btn-try-again').addEventListener('click', function () { show('idle'); startRecording(); });
   $('btn-close').addEventListener('click', function () { if (sdk && sdk.hasFeature('close')) sdk.close(); });
+  $('btn-another').addEventListener('click', function () { rec.state = 'idle'; show('idle'); startRecording(); });
 
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape' && (rec.state === 'recording' || rec.state === 'paused')) cancelRecording();
