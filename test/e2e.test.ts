@@ -55,7 +55,7 @@ function contextToken(
 ): string {
   return jwt.sign(
     {
-      appuserId: 'user_abc',
+      appUserId: 'user_abc', // nome real do claim no token da Zendesk
       subdomain: SUBDOMAIN,
       appId: APP_ID,
       integrationId: 'int_1',
@@ -180,6 +180,11 @@ test('aceita o subdomínio alternativo e rejeita subdomínio fora da lista', asy
   assert.equal((await createSession(contextToken({ subdomain: 'outra-conta' }))).status, 401);
 });
 
+test('aceita também o claim `appuserId` citado na documentação', async () => {
+  const res = await createSession(contextToken({ appUserId: undefined, appuserId: 'user_doc' }));
+  assert.equal(res.status, 201);
+});
+
 test('token assinado por chave fora do JWKS é rejeitado por padrão', async () => {
   const { privateKey: otherKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const res = await createSession(contextToken({}, '5m', otherKey, 'kid-desconhecido'));
@@ -192,18 +197,18 @@ test('DEMO_ALLOW_UNVERIFIED_CONTEXT: sem chave no JWKS, exige participação con
   const token = (claims: Record<string, unknown>, exp: string | number = '5m') =>
     contextToken(claims, exp, otherKey, 'kid-desconhecido');
 
-  const participant = await createSession(token({ conversationId: 'conv_part_0001', appuserId: 'user_part' }), demoUrl);
+  const participant = await createSession(token({ conversationId: 'conv_part_0001', appUserId: 'user_part' }), demoUrl);
   assert.equal(participant.status, 201);
-  const stranger = await createSession(token({ conversationId: 'conv_part_0001', appuserId: 'intruso' }), demoUrl);
+  const stranger = await createSession(token({ conversationId: 'conv_part_0001', appUserId: 'intruso' }), demoUrl);
   assert.equal(stranger.status, 401);
-  const expired = await createSession(token({ conversationId: 'conv_part_0001', appuserId: 'user_part' }, -10), demoUrl);
+  const expired = await createSession(token({ conversationId: 'conv_part_0001', appUserId: 'user_part' }, -10), demoUrl);
   assert.equal(expired.status, 401);
   // Assinatura válida continua passando pelo caminho normal.
   assert.equal((await createSession(contextToken(), demoUrl)).status, 201);
 });
 
 test('fluxo feliz: publica uma mensagem file com autoria do cliente, idempotente', async () => {
-  const session = await createSession(contextToken({ conversationId: 'conv_feliz_001', appuserId: 'user_feliz' }));
+  const session = await createSession(contextToken({ conversationId: 'conv_feliz_001', appUserId: 'user_feliz' }));
   assert.equal(session.status, 201);
   assert.equal(session.body.maxDurationSec, 10);
 

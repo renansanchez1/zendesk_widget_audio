@@ -91,20 +91,20 @@ Cobrem: token inválido, expirado ou de outro app; fluxo feliz com autoria `user
 (duplo clique e retry); oferta de uso único; arquivo disfarçado (415); duração acima do limite;
 retry após falha da Zendesk reaproveitando o upload.
 
-## Atenção: JWKS da conta vazio
+## Descobertas na conta real (27/10/2026)
 
-Em 27/10/2026, `https://con-renansanchez.zendesk.com/.well-known/jwks.json` respondia `{"keys":[]}`.
-Sem chave pública, o token do `getContext` não pode ser verificado e o gravador mostra
-"Não foi possível iniciar o gravador". No log aparece `signing_key_not_found`, junto com o `kid` e os
-claims do token, o que ajuda a investigar.
-
-- Primeiro, teste assim mesmo: as chaves podem aparecer quando a conta passa a emitir tokens.
-- Se continuar vazio, a demo pode rodar com `DEMO_ALLOW_UNVERIFIED_CONTEXT=true`. Nesse modo o servidor
-  aceita o token sem assinatura **somente** se a API confirmar que o usuário do token participa da
-  conversa do token, e registra `context_unverified_demo_fallback` no log. **Não use em produção.**
-  Nesse caso, abra um chamado na Zendesk (spec §11.3) perguntando por que o JWKS está vazio.
-- O app da conta está registrado com dois subdomínios (`con-renansanchez` e o original
-  `sisconsulting-14933`). Por isso `ZD_TOKEN_SUBDOMAINS` aceita os dois no claim `subdomain`.
+- **JWKS criado sob demanda.** `https://con-renansanchez.zendesk.com/.well-known/jwks.json` respondia
+  `{"keys":[]}` até o primeiro `getContext`. Depois dele, a chave (`kid` igual ao do token) apareceu
+  e a assinatura passou a ser verificada normalmente. `DEMO_ALLOW_UNVERIFIED_CONTEXT` fica `false`.
+  Esse modo só existe como plano B: aceita o token sem assinatura se a API (ListParticipants)
+  confirmar que o usuário participa da conversa. **Não use em produção.**
+- **O nome do claim difere da documentação.** O token real traz `appUserId`; a documentação cita
+  `appuserId`. O backend aceita os dois. Claims observados: `account_id, appId, appUserId,
+  conversationId, exp, iat, integrationId, iss, messageId, messageMetadata, subdomain`.
+- **Dois subdomínios.** O app está registrado com `con-renansanchez` e o original
+  `sisconsulting-14933`. `ZD_TOKEN_SUBDOMAINS` aceita os dois no claim `subdomain`.
+- **Diagnóstico.** Quando o token é recusado, o log `voice_session_rejected` mostra o motivo, o `kid`
+  e os nomes dos claims, sem os valores.
 
 ## O que esta demo ainda **não** prova
 

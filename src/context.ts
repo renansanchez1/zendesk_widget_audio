@@ -8,7 +8,9 @@ import { config, JWKS_URI_OVERRIDE } from './config.js';
 import { isParticipant } from './zendesk.js';
 
 export interface ZdContext extends JwtPayload {
+  /** Normalizado: o token real traz `appUserId`; a documentação cita `appuserId`. */
   appuserId: string;
+  appUserId?: string;
   subdomain: string;
   appId: string;
   integrationId?: string;
@@ -46,7 +48,7 @@ export async function verifyContext(token: string): Promise<ZdContext> {
   if (!decoded || typeof decoded === 'string' || typeof decoded.payload === 'string') {
     throw new ContextError('context_invalid', 'not_a_jwt');
   }
-  const claims = decoded.payload as ZdContext;
+  const claims = normalize(decoded.payload as ZdContext);
   const diag = `kid=${decoded.header.kid ?? '-'} alg=${decoded.header.alg} subdomain=${claims.subdomain} ` +
     `appIdOk=${claims.appId === config.appId} claims=${Object.keys(claims).join(',')}`;
 
@@ -58,7 +60,7 @@ export async function verifyContext(token: string): Promise<ZdContext> {
 
   try {
     const key = await jwksFor(claims.subdomain).getSigningKey(decoded.header.kid);
-    return jwt.verify(token, key.getPublicKey(), { algorithms: ['RS256'] }) as ZdContext;
+    return normalize(jwt.verify(token, key.getPublicKey(), { algorithms: ['RS256'] }) as ZdContext);
   } catch (e) {
     const name = (e as Error).name;
     if (name === 'TokenExpiredError') throw new ContextError('context_expired', diag);
@@ -68,6 +70,10 @@ export async function verifyContext(token: string): Promise<ZdContext> {
     }
     throw new ContextError('context_invalid', `${name} ${diag}`);
   }
+}
+
+function normalize(claims: ZdContext): ZdContext {
+  return { ...claims, appuserId: claims.appUserId ?? claims.appuserId };
 }
 
 /**
