@@ -40,7 +40,9 @@ Web Widget ──(mensagem business com Webview action "🎙️ Gravar áudio")�
 ## Pré-requisitos
 
 - Node.js ≥ 20 e **ffmpeg** no PATH. Sem o ffmpeg, a duração declarada pelo navegador é aceita sem conferência.
-- Conta Zendesk `con-renansanchez` com Messaging ativo e um Web Widget.
+- Conta Zendesk `con-renansanchez` com Messaging ativo e um Web Widget. A conta tem widgets de
+  clientes reais; **use um Web Widget/marca de teste**. O convite e os áudios são publicados de
+  verdade na conversa aberta.
 - Uma URL **HTTPS pública** apontando para este servidor. Para a demo, um túnel basta:
   `cloudflared tunnel --url http://localhost:8080` ou `ngrok http 8080`.
 
@@ -59,6 +61,9 @@ Web Widget ──(mensagem business com Webview action "🎙️ Gravar áudio")�
 ## Rodando
 
 ```bash
+git clone https://github.com/renansanchez1/zendesk_widget_audio.git
+cd zendesk_widget_audio
+git checkout claude/keen-dirac-4vrtsl
 npm install
 cp .env.example .env      # preencha SC_APP_ID, SC_KEY_ID, SC_KEY_SECRET, ZENDESK_WIDGET_KEY, PUBLIC_BASE_URL
 npm run dev               # http://localhost:8080
@@ -85,6 +90,21 @@ npm test     # sobe o servidor contra uma Zendesk simulada (JWKS + API v2); requ
 Cobrem: token inválido, expirado ou de outro app; fluxo feliz com autoria `user`; idempotência
 (duplo clique e retry); oferta de uso único; arquivo disfarçado (415); duração acima do limite;
 retry após falha da Zendesk reaproveitando o upload.
+
+## Atenção: JWKS da conta vazio
+
+Em 27/10/2026, `https://con-renansanchez.zendesk.com/.well-known/jwks.json` respondia `{"keys":[]}`.
+Sem chave pública, o token do `getContext` não pode ser verificado e o gravador mostra
+"Não foi possível iniciar o gravador". No log aparece `signing_key_not_found`, junto com o `kid` e os
+claims do token, o que ajuda a investigar.
+
+- Primeiro, teste assim mesmo: as chaves podem aparecer quando a conta passa a emitir tokens.
+- Se continuar vazio, a demo pode rodar com `DEMO_ALLOW_UNVERIFIED_CONTEXT=true`. Nesse modo o servidor
+  aceita o token sem assinatura **somente** se a API confirmar que o usuário do token participa da
+  conversa do token, e registra `context_unverified_demo_fallback` no log. **Não use em produção.**
+  Nesse caso, abra um chamado na Zendesk (spec §11.3) perguntando por que o JWKS está vazio.
+- O app da conta está registrado com dois subdomínios (`con-renansanchez` e o original
+  `sisconsulting-14933`). Por isso `ZD_TOKEN_SUBDOMAINS` aceita os dois no claim `subdomain`.
 
 ## O que esta demo ainda **não** prova
 

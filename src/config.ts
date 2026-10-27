@@ -11,8 +11,12 @@ function optional(name: string, fallback = ''): string {
   return process.env[name]?.trim() || fallback;
 }
 
+const subdomain = required('ZD_SUBDOMAIN');
+
 export const config = {
-  subdomain: required('ZD_SUBDOMAIN'),
+  subdomain,
+  // Subdomínios aceitos no claim `subdomain` do token (a conta pode ter mais de um, ex.: o original).
+  tokenSubdomains: optional('ZD_TOKEN_SUBDOMAINS', subdomain).split(',').map((s) => s.trim()).filter(Boolean),
   appId: required('SC_APP_ID'),
   keyId: required('SC_KEY_ID'),
   keySecret: required('SC_KEY_SECRET'),
@@ -25,8 +29,11 @@ export const config = {
   frameAncestors: optional('FRAME_ANCESTORS', '*'),
   // Só demo: deixa a página de teste pedir a oferta para a conversa aberta no widget.
   demoOfferEndpoint: optional('DEMO_OFFER_ENDPOINT') === 'true',
+  // Só demo: se o JWKS da conta não tiver a chave do token, aceita o token sem assinatura
+  // desde que a API confirme que o usuário participa da conversa. NÃO usar em produção.
+  demoAllowUnverifiedContext: optional('DEMO_ALLOW_UNVERIFIED_CONTEXT') === 'true',
 };
 
 // Overrides usados só pelos testes automatizados (servidor Zendesk simulado).
 export const SC_BASE = optional('SC_BASE_URL', `https://${config.subdomain}.zendesk.com/sc`);
-export const JWKS_URI = optional('ZD_JWKS_URI', `https://${config.subdomain}.zendesk.com/.well-known/jwks.json`);
+export const JWKS_URI_OVERRIDE = optional('ZD_JWKS_URI');

@@ -66,6 +66,15 @@ export async function postUserFileMessage(
   return messages[0].id;
 }
 
+/** ListParticipants: o usuário (userId v2) participa da conversa? */
+export async function isParticipant(conversationId: string, userId: string): Promise<boolean> {
+  const res = await scFetch(`${appPath}/conversations/${encodeURIComponent(conversationId)}/participants`, {
+    method: 'GET',
+  });
+  const { participants } = (await res.json()) as { participants: Array<{ userId: string }> };
+  return participants.some((p) => p.userId === userId);
+}
+
 /**
  * Mensagem de oferta (seção 5.1): texto do "business" com uma Webview action que abre o gravador.
  * O voiceOfferId volta em messageMetadata dentro do token do getContext.

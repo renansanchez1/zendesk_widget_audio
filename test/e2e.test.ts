@@ -28,7 +28,8 @@ const messages: Array<{ path: string; json: any }> = [];
 let failNextPostMessage = false;
 
 let mock: Server;
-let app: ChildProcess;
+let mockUrl = '';
+const apps: ChildProcess[] = [];
 let baseUrl = '';
 const tmp = mkdtempSync(join(tmpdir(), 'voz-test-'));
 
@@ -46,7 +47,12 @@ function makeAudio(name: string, seconds: number): Buffer {
   return readFileSync(file);
 }
 
-function contextToken(overrides: Record<string, unknown> = {}, expiresIn: string | number = '5m'): string {
+function contextToken(
+  overrides: Record<string, unknown> = {},
+  expiresIn: string | number = '5m',
+  signingKey = privateKey,
+  kid = KID,
+): string {
   return jwt.sign(
     {
       appuserId: 'user_abc',
@@ -58,13 +64,13 @@ function contextToken(overrides: Record<string, unknown> = {}, expiresIn: string
       messageMetadata: { voiceOfferId: randomUUID() },
       ...overrides,
     },
-    privateKey,
-    { algorithm: 'RS256', keyid: KID, expiresIn: expiresIn as jwt.SignOptions['expiresIn'] },
+    signingKey,
+    { algorithm: 'RS256', keyid: kid, expiresIn: expiresIn as jwt.SignOptions['expiresIn'] },
   );
 }
 
-async function createSession(token: string) {
-  const res = await fetch(`${baseUrl}/api/voice-sessions`, {
+async function createSession(token: string, url = baseUrl) {
+  const res = await fetch(`${url}/api/voice-sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contextToken: token }),
@@ -98,6 +104,12 @@ before(async () => {
       res.setHeader('Content-Type', 'application/json');
       return res.end(JSON.stringify({ attachment: { mediaUrl: `https://media.test/${uploads.length}.webm`, mediaType: 'audio/webm' } }));
     }
+    const parts = url.match(new RegExp(`^/sc/v2/apps/${APP_ID}/conversations/([^/]+)/participants$`));
+    if (req.method === 'GET' && parts) {
+      res.setHeader('Content-Type', 'application/json');
+      const participants = parts[1] === 'conv_part_0001' ? [{ id: 'p1', userId: 'user_part' }] : [];
+      return res.end(JSON.stringify({ participants, meta: { hasMore: false } }));
+    }
     const m = url.match(new RegExp(`^/sc/v2/apps/${APP_ID}/conversations/([^/]+)/messages$`));
     if (req.method === 'POST' && m) {
       if (failNextPostMessage) {
@@ -114,15 +126,19 @@ before(async () => {
     res.end();
   });
   await new Promise<void>((r) => mock.listen(0, '127.0.0.1', r));
-  const mockUrl = `http://127.0.0.1:${(mock.address() as AddressInfo).port}`;
+  mockUrl = `http://127.0.0.1:${(mock.address() as AddressInfo).port}`;
+  baseUrl = await startApp();
+});
 
+async function startApp(extraEnv: Record<string, string> = {}): Promise<string> {
   const port = 18000 + Math.floor(Math.random() * 1000);
-  baseUrl = `http://127.0.0.1:${port}`;
-  app = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
+  const url = `http://127.0.0.1:${port}`;
+  const proc = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
     env: {
       ...process.env,
       PORT: String(port),
       ZD_SUBDOMAIN: SUBDOMAIN,
+      ZD_TOKEN_SUBDOMAINS: `${SUBDOMAIN},subdominio-original`,
       SC_APP_ID: APP_ID,
       SC_KEY_ID: 'key',
       SC_KEY_SECRET: 'secret',
@@ -131,21 +147,22 @@ before(async () => {
       ZD_JWKS_URI: `${mockUrl}/.well-known/jwks.json`,
       MAX_DURATION_SEC: '10',
       MAX_BYTES: '1048576',
+      ...extraEnv,
     },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
-
+  apps.push(proc);
   for (let i = 0; i < 100; i++) {
     try {
-      if ((await fetch(`${baseUrl}/health`)).ok) return;
+      if ((await fetch(`${url}/health`)).ok) return url;
     } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error('servidor não subiu');
-});
+}
 
 after(() => {
-  app?.kill();
+  apps.forEach((p) => p.kill());
   mock?.close();
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -156,6 +173,33 @@ test('rejeita token inválido, expirado ou de outro app', async () => {
   assert.deepEqual([expired.status, expired.body.error], [401, 'context_expired']);
   const otherApp = await createSession(contextToken({ appId: 'outro_app' }));
   assert.deepEqual([otherApp.status, otherApp.body.error], [401, 'context_invalid']);
+});
+
+test('aceita o subdomínio alternativo e rejeita subdomínio fora da lista', async () => {
+  assert.equal((await createSession(contextToken({ subdomain: 'subdominio-original' }))).status, 201);
+  assert.equal((await createSession(contextToken({ subdomain: 'outra-conta' }))).status, 401);
+});
+
+test('token assinado por chave fora do JWKS é rejeitado por padrão', async () => {
+  const { privateKey: otherKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const res = await createSession(contextToken({}, '5m', otherKey, 'kid-desconhecido'));
+  assert.deepEqual([res.status, res.body.error], [401, 'context_invalid']);
+});
+
+test('DEMO_ALLOW_UNVERIFIED_CONTEXT: sem chave no JWKS, exige participação confirmada pela API', async () => {
+  const demoUrl = await startApp({ DEMO_ALLOW_UNVERIFIED_CONTEXT: 'true' });
+  const { privateKey: otherKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const token = (claims: Record<string, unknown>, exp: string | number = '5m') =>
+    contextToken(claims, exp, otherKey, 'kid-desconhecido');
+
+  const participant = await createSession(token({ conversationId: 'conv_part_0001', appuserId: 'user_part' }), demoUrl);
+  assert.equal(participant.status, 201);
+  const stranger = await createSession(token({ conversationId: 'conv_part_0001', appuserId: 'intruso' }), demoUrl);
+  assert.equal(stranger.status, 401);
+  const expired = await createSession(token({ conversationId: 'conv_part_0001', appuserId: 'user_part' }, -10), demoUrl);
+  assert.equal(expired.status, 401);
+  // Assinatura válida continua passando pelo caminho normal.
+  assert.equal((await createSession(contextToken(), demoUrl)).status, 201);
 });
 
 test('fluxo feliz: publica uma mensagem file com autoria do cliente, idempotente', async () => {
