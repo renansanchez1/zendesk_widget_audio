@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demo — Mensagens de voz no Zendesk Messaging</title>
+  <link rel="stylesheet" href="/assets/demo.css">
+</head>
+<body data-widget-key="__ZENDESK_WIDGET_KEY__" data-demo-offer="__DEMO_OFFER_ENDPOINT__">
+  <main class="page">
+    <p class="eyebrow">Demo · variante A1 (Webview action)</p>
+    <h1>Mensagens de voz no Web Widget</h1>
+    <p class="lead">
+      Página de teste que carrega o Web Widget da Zendesk. O cliente grava o áudio num gravador
+      que abre por cima do chat, e o áudio entra na conversa como mensagem do próprio cliente.
+    </p>
+
+    <div id="no-key" class="callout warn" hidden>
+      <strong>ZENDESK_WIDGET_KEY não configurada.</strong> Defina a chave do Web Widget no <code>.env</code>
+      (Admin Center → Canais → Messaging → seu widget → Instalação) e reinicie o servidor.
+    </div>
+
+    <ol class="steps">
+      <li>Abra o widget (canto inferior direito) e mande qualquer mensagem, por exemplo "oi".</li>
+      <li>
+        Peça o convite de gravação:
+        <span id="offer-hint-webhook">digite <em>"quero mandar um áudio"</em> (se o webhook estiver configurado)</span>
+        <span id="offer-hint-button" hidden>use o botão abaixo</span>.
+      </li>
+      <li>No chat, toque em <strong>🎙️ Gravar áudio</strong>, grave, ouça e envie.</li>
+      <li>Veja o áudio no histórico do widget e no ticket do Agent Workspace.</li>
+    </ol>
+
+    <section id="offer-panel" class="panel" hidden>
+      <div class="row">
+        <span class="label">Conversa atual</span>
+        <code id="conversation-id">— abra o widget e envie uma mensagem —</code>
+      </div>
+      <button id="send-offer" type="button" disabled>Enviar convite de gravação para esta conversa</button>
+      <p id="offer-status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <p class="footnote">
+      Sem gravar? O clipe 📎 nativo do widget também aceita arquivos de áudio (m4a, mp3, ogg, wav, webm…).
+    </p>
+  </main>
+  <script src="/assets/demo.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+:root { --bg: #ffffff; --fg: #1f2933; --muted: #5f6b7a; --accent: #1f73b7; --border: #d8dcde; --surface: #f5f6f7; --warn: #fff4e5; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #17191c; --fg: #e9ebed; --muted: #a3acb6; --accent: #5aa6e6; --border: #3a3f45; --surface: #23272b; --warn: #3a2e1c; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.page { max-width: 720px; margin: 0 auto; padding: 48px 16px 120px; }
+.eyebrow { color: var(--accent); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: .8rem; margin: 0; }
+h1 { font-size: 2rem; line-height: 1.2; margin: 8px 0 12px; }
+.lead { color: var(--muted); font-size: 1.1rem; }
+.steps { padding-left: 20px; }
+.steps li { margin: 8px 0; }
+.panel { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 16px; display: grid; gap: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.label { color: var(--muted); font-size: .9rem; }
+code { overflow-wrap: anywhere; }
+button { font: inherit; border-radius: 8px; padding: 10px 14px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; min-height: 44px; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.status { margin: 0; color: var(--muted); min-height: 1.5em; }
+.callout { border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+.callout.warn { background: var(--warn); }
+.footnote { color: var(--muted); font-size: .9rem; margin-top: 32px; }

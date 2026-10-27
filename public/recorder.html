@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mensagem de voz</title>
+  <link rel="stylesheet" href="/assets/recorder.css">
+</head>
+<body>
+  <main class="recorder" aria-labelledby="title">
+    <h1 id="title" class="visually-hidden">Mensagem de voz</h1>
+
+    <!-- Inicial -->
+    <section data-view="idle">
+      <button id="btn-record" class="mic" type="button" aria-label="Iniciar gravação" disabled>
+        <span aria-hidden="true">🎙️</span>
+      </button>
+      <p class="title">Toque para gravar</p>
+      <p class="muted" id="limits-text">Você poderá ouvir antes de enviar.</p>
+      <p class="consent">
+        O áudio é enviado para a equipe de atendimento nesta conversa e segue a política de
+        privacidade da empresa.
+      </p>
+    </section>
+
+    <!-- Gravando / pausado -->
+    <section data-view="recording" hidden>
+      <p class="rec-indicator"><span class="dot" aria-hidden="true"></span><span id="rec-label">Gravando</span></p>
+      <p class="timer"><span id="elapsed">00:00</span> <span class="muted">/ <span id="max">03:00</span></span></p>
+      <div class="meter" aria-hidden="true"><div id="meter-fill"></div></div>
+      <div class="actions">
+        <button id="btn-pause" type="button" class="secondary">Pausar</button>
+        <button id="btn-stop" type="button" class="primary">Parar</button>
+      </div>
+      <button id="btn-cancel" type="button" class="link">Cancelar</button>
+    </section>
+
+    <!-- Pré-escuta -->
+    <section data-view="preview" hidden>
+      <p class="title">Ouça antes de enviar</p>
+      <audio id="player" controls preload="metadata"></audio>
+      <p class="muted" id="preview-info"></p>
+      <div class="actions">
+        <button id="btn-discard" type="button" class="secondary">Descartar</button>
+        <button id="btn-rerecord" type="button" class="secondary">Regravar</button>
+      </div>
+      <button id="btn-send" type="button" class="primary wide">Enviar áudio</button>
+    </section>
+
+    <!-- Enviando -->
+    <section data-view="sending" hidden>
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="title">Enviando…</p>
+    </section>
+
+    <!-- Enviado -->
+    <section data-view="sent" hidden>
+      <p class="big" aria-hidden="true">✅</p>
+      <p class="title">Áudio enviado</p>
+      <p class="muted">Ele já aparece na conversa.</p>
+      <button id="btn-close" type="button" class="secondary">Fechar</button>
+    </section>
+
+    <!-- Falha no envio -->
+    <section data-view="send-failed" hidden>
+      <p class="big" aria-hidden="true">⚠️</p>
+      <p class="title">Não conseguimos enviar agora.</p>
+      <p class="muted">Sua gravação continua aqui.</p>
+      <div class="actions">
+        <button id="btn-retry" type="button" class="primary">Tentar novamente</button>
+        <button id="btn-back" type="button" class="secondary">Voltar</button>
+      </div>
+    </section>
+
+    <!-- Microfone negado / erro sem recuperação -->
+    <section data-view="message" hidden>
+      <p class="big" aria-hidden="true" id="message-icon">🎙️</p>
+      <p class="title" id="message-title"></p>
+      <p class="muted" id="message-text"></p>
+      <button id="btn-try-again" type="button" class="secondary" hidden>Tentar de novo</button>
+    </section>
+
+    <p id="live" class="visually-hidden" role="status" aria-live="polite"></p>
+  </main>
+
+  <script src="/assets/recorder.js"></script>
+  <script src="https://static.zdassets.com/conversation-extensions/latest/sdk.js" async></script>
+</body>
+</html>
